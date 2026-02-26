@@ -43,11 +43,16 @@ if 'mind_splash' not in st.session_state:
 conn = st.connection("gsheets", type=GSheetsConnection)
 df = conn.read(ttl=0)
 
-if "auth" not in st.session_state:
-    pwd = st.text_input("Inserisci Password Olimpica", type="password")
-    if pwd == "olimpiadi2040":
-        st.session_state["auth"] = True
-        st.rerun()
+# Usiamo un piccolo trucco: una colonna centrale per il login
+    col_a, col_b, col_c = st.columns([1,2,1])
+    with col_b:
+        pwd_input = st.text_input("Inserisci Password Olimpica", type="password")
+        if st.button("SBLOCCA LAB 🚀", use_container_width=True):
+            if pwd_input == "olimpiadi2040":
+                st.session_state["auth"] = True
+                st.rerun()
+            else:
+                st.error("Password Errata")
     st.stop()
 
 # Pulizia e conversione date
@@ -191,4 +196,5 @@ if not df.empty:
             st.error(f"Errore nella generazione PDF: {e}")
 
         with st.expander("📖 Diario Storico"):
+
             st.dataframe(df_f.sort_values(by="Data", ascending=False), hide_index=True)
