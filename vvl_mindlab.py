@@ -1,194 +1,225 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import time
+import datetime
 from streamlit_gsheets import GSheetsConnection
-from datetime import datetime, timedelta
 from fpdf import FPDF
 
-# ==========================================
-# 1. CONFIGURAZIONE E DESIGN GOOGLE-PGA
-# ==========================================
+# ==============================================================================
+# 1. CONFIGURAZIONE E DESIGN (Suite V.V.L.)
+# ==============================================================================
 st.set_page_config(page_title="V.V.L. Mind Lab", page_icon="🧠", layout="centered")
 
-# CSS per interfaccia pulita e professionale
-st.markdown("""
+COLORS = {
+    'Teal': '#3AB4B8',
+    'Dark': '#1f2937',
+    'Grey': '#F3F4F6',
+    'White': '#FFFFFF'
+}
+
+st.markdown(f"""
     <style>
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
-    .stDeployButton {display:none;}
-    .stSlider [data-baseweb="slider"] { margin-bottom: 20px; }
+    #MainMenu {{visibility: hidden;}}
+    header {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+    .block-container {{ padding-top: 2rem; }}
+    .stApp {{ background-color: {COLORS['White']}; color: {COLORS['Dark']}; }}
+    h1, h2, h3 {{ color: {COLORS['Teal']}; font-family: 'Helvetica', sans-serif; }}
+    .stButton>button {{ background-color: {COLORS['Teal']}; color: white; border-radius: 8px; font-weight: bold; width: 100%; border: none; padding: 10px; }}
+    .stButton>button:hover {{ background-color: #2A8285; }}
+    .vision-box {{ background-color: {COLORS['Grey']}; padding: 20px; border-left: 5px solid {COLORS['Teal']}; border-radius: 5px; margin-bottom: 20px; }}
     </style>
     """, unsafe_allow_html=True)
 
-# ==========================================
-# 2. SPLASH SCREEN (LOGO 3 SECONDI)
-# ==========================================
-if 'mind_splash' not in st.session_state:
+COLUMNS = ["Data", "Torneo", "Score", "Accettazione", "Routine", "Decisione", "Focus", "Energia", "Tensione", "Note"]
+
+# ==============================================================================
+# 2. SPLASH SCREEN & LOGIN
+# ==============================================================================
+if "mind_splash" not in st.session_state:
     placeholder = st.empty()
     with placeholder.container():
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         try:
             st.image("logo.png", use_container_width=True)
         except:
-            st.markdown("<h1 style='text-align:center; color:#2CB8C8;'>V.V.L. MIND LAB</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;'>Mental Performance Training - Road to 2040</p>", unsafe_allow_html=True)
-    time.sleep(3)
+            st.markdown(f"<h1 style='text-align:center; font-size:4rem; color:{COLORS['Teal']};'>V.V.L. MIND LAB</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; font-weight:bold;'>Mental Performance Training - Road to 2040</p>", unsafe_allow_html=True)
+    time.sleep(2)
     placeholder.empty()
-    st.session_state['mind_splash'] = True
+    st.session_state["mind_splash"] = True
 
-# ==========================================
-# 3. CONNESSIONE DATI E SICUREZZA
-# ==========================================
-conn = st.connection("gsheets", type=GSheetsConnection)
-df = conn.read(ttl=0)
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
 
-if "auth" not in st.session_state:
+if not st.session_state["logged_in"]:
+    st.markdown(f"<h3 style='text-align:center; color:{COLORS['Teal']}'>Area Riservata Performance</h3>", unsafe_allow_html=True)
     pwd = st.text_input("Inserisci Password Olimpica", type="password")
-    if pwd == "olimpiadi2040":
-        st.session_state["auth"] = True
-        st.rerun()
+    if st.button("ACCEDI"):
+        if pwd == "olimpiadi2040":
+            st.session_state["logged_in"] = True
+            st.rerun()
+        else:
+            st.error("Credenziali respinte.")
     st.stop()
 
-# Pulizia e conversione date
-if not df.empty:
-    df['Data'] = pd.to_datetime(df['Data'], errors='coerce')
-    df = df.dropna(subset=['Data'])
+# ==============================================================================
+# 3. DATA ENGINE (Google Sheets)
+# ==============================================================================
+@st.cache_data(ttl=5)
+def load_data():
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df = conn.read(ttl=0)
+        df['Data'] = pd.to_datetime(df['Data'], errors='coerce').dt.date
+        return df
+    except Exception as e:
+        return pd.DataFrame(columns=COLUMNS)
 
-# ==========================================
-# 4. FUNZIONE PDF (Libreria FPDF Classica)
-# ==========================================
-def create_pdf_classic(data, period_name):
-    pdf = FPDF()
+def save_data(new_data):
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    df_existing = load_data()
+    df_new = pd.DataFrame([new_data])
+    df_final = pd.concat([df_existing, df_new], ignore_index=True)
+    conn.update(data=df_final)
+    st.cache_data.clear()
+
+# ==============================================================================
+# 4. GENERATORE PDF PROFESSIONALE
+# ==============================================================================
+class PDFReport(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 15)
+        self.set_text_color(58, 180, 184) # Teal VVL
+        self.cell(0, 8, 'V.V.L. MIND LAB - PERFORMANCE REPORT', 0, 1, 'C')
+        self.set_draw_color(200, 200, 200)
+        self.line(10, 18, 200, 18)
+        self.ln(8)
+
+def create_pdf_report(df_filtered, period_name):
+    pdf = PDFReport()
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(190, 10, "V.V.L. MIND LAB - PERFORMANCE REPORT", 0, 1, 'C')
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(190, 10, f"Periodo: {period_name} | Generato: {datetime.now().strftime('%d/%m/%Y')}", 0, 1, 'C')
-    pdf.ln(10)
+    pdf.set_font('Arial', '', 10)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(0, 6, f"Periodo Analizzato: {period_name} | Data Generazione: {datetime.date.today()}", ln=True)
+    pdf.ln(5)
 
-    if not data.empty:
-        # Calcolo Medie
-        medie = data[['Accettazione', 'Routine', 'Decisione', 'Focus', 'Energia']].mean()
-        pdf.set_font("Arial", 'B', 14)
-        pdf.cell(190, 10, "Medie Mental Skill del Periodo:", 0, 1)
-        pdf.set_font("Arial", '', 12)
-        for cat, val in medie.items():
-            pdf.cell(190, 8, f"- {cat}: {round(val, 2)} / 5", 0, 1)
+    if not df_filtered.empty:
+        # Analisi Medie
+        pdf.set_font('Arial', 'B', 12)
+        pdf.set_fill_color(58, 180, 184)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 8, " PROFILO MENTALE MEDIO (Scala 1-5) ", 0, 1, 'L', fill=True)
+        pdf.set_text_color(0, 0, 0)
         
-        pdf.ln(10)
-        pdf.set_font("Arial", 'B', 14)
-        pdf.cell(190, 10, "Storico Tornei nel Periodo:", 0, 1)
-        pdf.set_font("Arial", '', 10)
-        for i, row in data.iterrows():
-            pdf.cell(190, 7, f"{row['Data'].strftime('%Y-%m-%d')} - {row['Torneo']} - Score: {row['Score']}", 0, 1)
-    
-    # Restituisce il PDF come stringa di byte compatibile con Streamlit
+        skills = ['Accettazione', 'Routine', 'Decisione', 'Focus', 'Energia', 'Tensione']
+        for skill in skills:
+            media = df_filtered[skill].mean()
+            pdf.set_font('Arial', '', 10)
+            pdf.cell(0, 6, f"> {skill}: {media:.1f} / 5.0", ln=True)
+        
+        pdf.ln(5)
+        # Storico Tornei
+        pdf.set_font('Arial', 'B', 12)
+        pdf.set_fill_color(58, 180, 184)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 8, " STORICO COMPETIZIONI ", 0, 1, 'L', fill=True)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font('Arial', '', 9)
+        
+        for _, row in df_filtered.iterrows():
+            d_str = row['Data'].strftime('%d/%m/%Y') if pd.notnull(row['Data']) else "N/A"
+            note_str = str(row['Note'])[:80] + "..." if pd.notnull(row['Note']) and len(str(row['Note'])) > 80 else str(row['Note'])
+            # Pulizia caratteri speciali per FPDF
+            note_clean = note_str.encode('latin-1', 'ignore').decode('latin-1')
+            
+            pdf.cell(0, 6, f"{d_str} | {row['Torneo']} | Score: {row['Score']}", ln=True)
+            pdf.set_font('Arial', 'I', 8)
+            pdf.cell(0, 5, f"   Note: {note_clean}", ln=True)
+            pdf.set_font('Arial', '', 9)
+            pdf.ln(2)
+
     return pdf.output(dest='S').encode('latin-1')
 
-# ==========================================
-# 5. OBIETTIVI LUNGO TERMINE (VISION 2040)
-# ==========================================
-st.title("🏆 V.V.L. Mind Lab & Vision")
-with st.expander("🎯 LA TUA VISIONE: OLIMPIADI 2040"):
-    st.markdown("""
-    **Missione:** Diventare il giocatore più resiliente del Tour.
-    - **Obiettivo Tecnico:** Punteggio medio < 70.0 entro il 2030.
-    - **Obiettivo Mentale:** Routine pre-colpo automatizzata al 100%.
-    - **Motto:** *Il processo batte il risultato.*
-    """)
+# ==============================================================================
+# 5. INTERFACCIA PRINCIPALE
+# ==============================================================================
+st.markdown("<div class='vision-box'><strong>🎯 MISSIONE 2040:</strong> Diventare il giocatore più resiliente del Tour.<br><em>Il processo batte il risultato.</em></div>", unsafe_allow_html=True)
 
-# ==========================================
-# 6. INPUT POST-TORNEO
-# ==========================================
-st.subheader("📝 Analisi Fine Gara")
-with st.form("mind_review", clear_on_submit=True):
-    col1, col2 = st.columns(2)
-    with col1:
-        torneo = st.text_input("Torneo o Campo")
-        score = st.number_input("Punteggio Finale", min_value=50, value=72)
-    with col2:
-        acc = st.select_slider("Accettazione Errore", options=[1,2,3,4,5], value=3)
-        rou = st.select_slider("Costanza Routine", options=[1,2,3,4,5], value=3)
-    
-    col3, col4 = st.columns(2)
-    with col3:
-        dec = st.select_slider("Decisione/Immagine", options=[1,2,3,4,5], value=3)
-        foc = st.select_slider("Focus Presente", options=[1,2,3,4,5], value=3)
-    with col4:
-        ene = st.select_slider("Gestione Energia", options=[1,2,3,4,5], value=3)
-        ten = st.select_slider("Tensione (1=Ok, 5=Blocco)", options=[1,2,3,4,5], value=2)
+tab_in, tab_an = st.tabs(["📝 REGISTRO POST-GARA", "📊 ANALISI RADAR"])
 
-    note = st.text_area("Cosa porti a casa da questa giornata?")
-    
-    if st.form_submit_button("REGISTRA PERFORMANCE MENTALE 🚀"):
-        nuovo = pd.DataFrame([{
-            "Data": datetime.now(), "Torneo": torneo, "Score": score,
-            "Accettazione": acc, "Routine": rou, "Decisione": dec,
-            "Focus": foc, "Energia": ene, "Tensione": ten, "Note": note
-        }])
-        df_updated = pd.concat([df, nuovo], ignore_index=True)
-        conn.update(data=df_updated)
-        st.success("Analisi salvata. Ogni dato ti avvicina al 2040.")
-        time.sleep(1)
-        st.rerun()
+with tab_in:
+    st.subheader("Analisi della Prestazione")
+    with st.form("mind_review", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            torneo = st.text_input("Torneo o Campo Pratica")
+            score = st.number_input("Punteggio Finale (Lascia 0 se allenamento)", min_value=0, value=72)
+        with col2:
+            acc = st.slider("Accettazione dell'Errore", 1, 5, 3)
+            rou = st.slider("Costanza della Routine", 1, 5, 3)
+        
+        col3, col4 = st.columns(2)
+        with col3:
+            dec = st.slider("Qualità Decisione/Immagine", 1, 5, 3)
+            foc = st.slider("Focus nel Presente", 1, 5, 3)
+        with col4:
+            ene = st.slider("Gestione Energia", 1, 5, 3)
+            ten = st.slider("Tensione (1=Rilassato, 5=Bloccato)", 1, 5, 2)
 
-# ==========================================
-# 7. REPORTISTICA E GRAFICI AVANZATI
-# ==========================================
-if not df.empty:
-    st.divider()
-    st.header("📊 Analisi della Tenuta Mentale")
+        note = st.text_area("Cosa porti a casa da questa sessione? (Key Takeaway)")
+        
+        if st.form_submit_button("SALVA VALUTAZIONE MENTALE"):
+            if torneo:
+                new_entry = {
+                    "Data": datetime.date.today(), "Torneo": torneo, "Score": score,
+                    "Accettazione": acc, "Routine": rou, "Decisione": dec,
+                    "Focus": foc, "Energia": ene, "Tensione": ten, "Note": note
+                }
+                save_data(new_entry)
+                st.success("✅ Dati acquisiti. Ogni analisi ti avvicina all'obiettivo.")
+            else:
+                st.error("Inserisci il nome del Torneo o Campo.")
+
+with tab_an:
+    df_all = load_data()
     
-    periodo = st.selectbox("Seleziona Arco Temporale:", 
-                          ["Ultimi 7 giorni", "Ultimo Mese", "Ultimi 6 Mesi", "Ultimo Anno", "Lifelong"])
-    
-    # Filtro Temporale Dinamico
-    oggi = datetime.now()
-    if periodo == "Ultimi 7 giorni":
-        df_f = df[df['Data'] >= (oggi - timedelta(days=7))]
-    elif periodo == "Ultimo Mese":
-        df_f = df[df['Data'] >= (oggi - timedelta(days=30))]
-    elif periodo == "Ultimi 6 Mesi":
-        df_f = df[df['Data'] >= (oggi - timedelta(days=182))]
-    elif periodo == "Ultimo Anno":
-        df_f = df[df['Data'] >= (oggi - timedelta(days=365))]
+    if df_all.empty:
+        st.info("Nessun dato registrato. Inserisci la prima valutazione per sbloccare i grafici.")
     else:
-        df_f = df
+        periodo = st.selectbox("Seleziona Arco Temporale:", ["Ultimi 7 giorni", "Ultimo Mese", "Ultimi 6 Mesi", "Lifelong (Tutto)"])
+        oggi = datetime.date.today()
+        
+        if periodo == "Ultimi 7 giorni": df_f = df_all[df_all['Data'] >= (oggi - datetime.timedelta(days=7))]
+        elif periodo == "Ultimo Mese": df_f = df_all[df_all['Data'] >= (oggi - datetime.timedelta(days=30))]
+        elif periodo == "Ultimi 6 Mesi": df_f = df_all[df_all['Data'] >= (oggi - datetime.timedelta(days=182))]
+        else: df_f = df_all
 
-    if not df_f.empty:
-        # RADAR CHART (Sempre visibile per analisi immediata)
-        medie_f = df_f[['Accettazione', 'Routine', 'Decisione', 'Focus', 'Energia']].mean()
-        
-        fig = go.Figure(go.Scatterpolar(
-            r=medie_f.values,
-            theta=medie_f.index,
-            fill='toself',
-            line_color='#2CB8C8',
-            name=periodo
-        ))
-        
-        fig.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0, 5])),
-            showlegend=False,
-            title=f"Profilo Mentale Medio: {periodo}"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        
-
-        # DOWNLOAD PDF (Libreria FPDF Classica)
-        st.subheader("📩 Esporta Report")
-        try:
-            pdf_out = create_pdf_classic(df_f, periodo)
-            st.download_button(
-                label=f"Scarica PDF {periodo}",
-                data=pdf_out,
-                file_name=f"VVL_Mind_Report_{periodo.replace(' ', '_')}.pdf",
-                mime="application/pdf"
+        if not df_f.empty:
+            # Creazione Radar Chart
+            medie_f = df_f[['Accettazione', 'Routine', 'Decisione', 'Focus', 'Energia']].mean()
+            
+            fig = go.Figure(go.Scatterpolar(
+                r=medie_f.values,
+                theta=medie_f.index,
+                fill='toself',
+                fillcolor='rgba(58, 180, 184, 0.5)', # Teal semitrasparente
+                line_color='#3AB4B8',
+                name='Skill Mentali'
+            ))
+            fig.update_layout(
+                polar=dict(radialaxis=dict(visible=True, range=[0, 5])),
+                showlegend=False,
+                title=f"Profilo Radar delle Competenze ({periodo})"
             )
-        except Exception as e:
-            st.error(f"Errore nella generazione PDF: {e}")
+            st.plotly_chart(fig, use_container_width=True)
 
-        with st.expander("📖 Diario Storico"):
-            st.dataframe(df_f.sort_values(by="Data", ascending=False), hide_index=True)
+            # Bottone PDF
+            pdf_bytes = create_pdf_report(df_f, periodo)
+            st.download_button(label="📄 SCARICA REPORT MENTALE (PDF)", data=pdf_bytes, file_name=f"VVL_MindLab_{periodo.replace(' ', '')}.pdf", mime="application/pdf")
+            
+            with st.expander("📖 Esplora Diario Storico"):
+                st.dataframe(df_f.sort_values(by="Data", ascending=False), hide_index=True)
+        else:
+            st.warning("Nessun dato trovato per il periodo selezionato.")
